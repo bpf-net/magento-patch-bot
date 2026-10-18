@@ -1,5 +1,4 @@
 "$schema" = "./node_modules/wrangler/config-schema.json"
-
 name = "magento-patch-bot"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"
@@ -8,10 +7,11 @@ send_metrics = false
 upload_source_maps = true
 
 [triggers]
-crons = ["0 6 * * *"]
+crons = [ "0 6 * * *" ]
 
 [[kv_namespaces]]
 binding = "STATE"
+id = "45e1010cb5df469eb9c717f78c38f9a1"
 
 [[workflows]]
 name = "magento-patch-bot-check"
@@ -22,4 +22,4 @@ class_name = "CheckWorkflow"
 enabled = true
 
 [secrets]
-required = ["ADMIN_TOKEN"]
+required = [ "ADMIN_TOKEN" ]
