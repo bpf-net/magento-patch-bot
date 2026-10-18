@@ -8,11 +8,15 @@ send_metrics = false
 upload_source_maps = true
 
 [triggers]
-crons = ["*/15 * * * *"]
+crons = ["0 6 * * *"]
 
 [[kv_namespaces]]
 binding = "STATE"
-# No "id": the first `wrangler deploy` creates the namespace and writes its id back here.
+
+[[workflows]]
+name = "magento-patch-bot-check"
+binding = "CHECK"
+class_name = "CheckWorkflow"
 
 [observability]
 enabled = true
