@@ -1,0 +1,21 @@
+"$schema" = "./node_modules/wrangler/config-schema.json"
+
+name = "magento-patch-bot"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+preview_urls = false
+send_metrics = false
+upload_source_maps = true
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[[kv_namespaces]]
+binding = "STATE"
+# No "id": the first `wrangler deploy` creates the namespace and writes its id back here.
+
+[observability]
+enabled = true
+
+[secrets]
+required = ["ADMIN_TOKEN"]

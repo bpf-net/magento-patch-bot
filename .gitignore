@@ -1,0 +1,12 @@
+node_modules/
+.wrangler/
+dist/
+.dev.vars*
+.env*
+
+.memdb/
+.serena/
+.idea/
+.vscode/
+*.log
+.DS_Store

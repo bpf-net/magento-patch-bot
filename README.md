@@ -1,0 +1,1 @@
+## Magento patch bot
