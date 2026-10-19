@@ -8,7 +8,7 @@ import { type VersionMatch, matchBulletin } from "./versions";
 
 // Pierwsza próba + 3 ponowne.
 const WATCH_RETRY: WorkflowStepConfig = { retries: { limit: 3, delay: "30 minutes", backoff: "constant" }, timeout: "1 minute" };
-const TEAMS_RETRY: WorkflowStepConfig = { retries: { limit: 3, delay: "15 minutes", backoff: "constant" }, timeout: "1 minute" };
+const SEND_RETRY: WorkflowStepConfig = { retries: { limit: 3, delay: "15 minutes", backoff: "constant" }, timeout: "1 minute" };
 
 const PENDING_TTL_MS = 7 * 24 * 3600 * 1000;
 const MAX_AGE_MS = 120 * 24 * 3600 * 1000;
@@ -31,7 +31,7 @@ const bulletinOrder = (id: string) => {
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /**
- * Jedno uruchomienie z crona: pobranie z magento.watch → wykrycie nowych biuletynów → wysyłka na Teams.
+ * Jedno uruchomienie z crona: pobranie z magento.watch → wykrycie nowych biuletynów → wysyłka na Teams / Google Chat.
  * Ponowienia robi Workflows: wyniki udanych kroków są zapamiętane, więc ponawiany jest tylko krok, który zawiódł.
  */
 export class CheckWorkflow extends WorkflowEntrypoint<Env> {
@@ -49,7 +49,7 @@ export class CheckWorkflow extends WorkflowEntrypoint<Env> {
       const channels = [...new Map(subs.filter((s) => s.enabled).map((s) => [s.channel.url, s.channel])).values()];
       for (const [i, channel] of channels.entries()) {
         try {
-          await step.do(`alert magento.watch #${i + 1}`, TEAMS_RETRY, () => deliverWatchAlert(channel, message(e), env));
+          await step.do(`alert magento.watch #${i + 1}`, SEND_RETRY, () => deliverWatchAlert(channel, message(e), env));
         } catch (alertError) {
           errors.push(`alert magento.watch #${i + 1}: ${message(alertError)}`);
         }
@@ -123,11 +123,13 @@ export class CheckWorkflow extends WorkflowEntrypoint<Env> {
           }
           const attempts = (prev?.attempts ?? 0) + 1;
           try {
-            const at = await step.do(`teams ${id} → ${sub.name}`, TEAMS_RETRY, async () => {
+            const at = await step.do(`wyślij ${id} → ${sub.name}`, SEND_RETRY, async () => {
               await deliver({ card: record.card, sub, matches }, env);
               return new Date().toISOString();
             });
             record.deliveries[sub.name] = { status: "sent", at, attempts, matches };
+            // Google Chat: limit 1 wiadomości na sekundę na przestrzeń.
+            if (sub.channel.type === "google-chat") await step.sleep(`pauza ${id} → ${sub.name}`, "1 second");
           } catch (e) {
             down = message(e);
             const status: DeliveryStatus = { status: "failed", at: new Date().toISOString(), attempts, reason: down };

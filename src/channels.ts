@@ -124,6 +124,50 @@ function teamsMessage(body: unknown[], links: View["links"]) {
   };
 }
 
+/* ---------- Google Chat (Incoming Webhook, cardsV2) ---------- */
+
+const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const paragraph = (text: string) => ({ textParagraph: { text } });
+const subtle = (text: string) => paragraph(`<font color="#5f6368">${esc(text)}</font>`);
+
+// Google Chat nie koloruje nagłówka karty, więc pilność idzie w osobnej, kolorowej linii.
+const LEVEL_NOTE: Record<View["level"], { color: string; text: string } | undefined> = {
+  urgent: { color: "#d93025", text: "Aktywnie wykorzystywany w sieci" },
+  high: { color: "#e37400", text: "Krytyczny" },
+  normal: undefined,
+};
+
+export function renderGoogleChat(v: View, cardId: string) {
+  const note = LEVEL_NOTE[v.level];
+  const sections: unknown[] = [];
+  if (note) sections.push({ widgets: [paragraph(`<font color="${note.color}"><b>${note.text}</b></font>`)] });
+  if (v.yourVersions.length) sections.push({ header: "Twoje wersje", widgets: [paragraph(v.yourVersions.map(esc).join("<br>"))] });
+
+  const details: unknown[] = v.facts.map((f) => ({ decoratedText: { topLabel: f.title, text: esc(f.value), wrapText: true } }));
+  if (v.fixedLine) details.push(subtle(v.fixedLine));
+  sections.push({ widgets: details });
+
+  if (v.patches.length) {
+    const lines = v.patches.map((p) => (p.url ? `<a href="${esc(p.url)}">${esc(p.text)}</a>` : esc(p.text)));
+    sections.push({ header: "Izolowane patche", widgets: [paragraph(lines.join("<br>"))] });
+  }
+  const footer: unknown[] = [];
+  if (v.cveLine) footer.push(subtle(v.cveLine));
+  footer.push(subtle(v.footer));
+  footer.push(linkButtons(v.links));
+  sections.push({ widgets: footer });
+
+  return googleChatMessage(v.headline, v.title, sections, cardId);
+}
+
+const linkButtons = (links: View["links"]) => ({
+  buttonList: { buttons: links.map((l) => ({ text: l.title, onClick: { openLink: { url: l.url } } })) },
+});
+
+function googleChatMessage(title: string, subtitle: string, sections: unknown[], cardId: string) {
+  return { cardsV2: [{ cardId, card: { header: { title, subtitle }, sections } }] };
+}
+
 /* ---------- Wysyłka ---------- */
 
 export interface Delivery {
@@ -132,14 +176,15 @@ export interface Delivery {
   matches: VersionMatch[];
 }
 
-
 export async function deliver(
   delivery: Delivery,
   env: Record<string, unknown>,
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
-  const payload = renderTeams(buildView(delivery.card, delivery.sub, delivery.matches));
-  await postTeams(resolveSecret(delivery.sub.channel.url, env)!, payload, fetchImpl);
+  const view = buildView(delivery.card, delivery.sub, delivery.matches);
+  const { channel } = delivery.sub;
+  const payload = channel.type === "google-chat" ? renderGoogleChat(view, delivery.card.id) : renderTeams(view);
+  await post(channel, resolveSecret(channel.url, env)!, payload, fetchImpl);
 }
 
 /** Alert o niedostępnym magento.watch — wysyłany po wyczerpaniu ponownych prób pobrania. */
@@ -149,28 +194,39 @@ export async function deliverWatchAlert(
   env: Record<string, unknown>,
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
-  const payload = teamsMessage(
-    [
-      {
-        type: "Container",
-        style: "warning",
-        bleed: true,
-        items: [{ type: "TextBlock", text: "⚠️ magento.watch nie odpowiada", weight: "Bolder", size: "Large", wrap: true }],
-      },
-      { type: "TextBlock", text: "Nie udało się pobrać listy biuletynów mimo ponownych prób.", wrap: true },
-      { type: "TextBlock", text: error, wrap: true, isSubtle: true, size: "Small" },
-      { type: "TextBlock", text: "Kolejna próba przy następnym uruchomieniu crona.", wrap: true, isSubtle: true, size: "Small" },
-    ],
-    [{ title: "magento.watch", url: MAGENTO_WATCH_BULLETIN_PAGE }],
-  );
-  await postTeams(resolveSecret(channel.url, env)!, payload, fetchImpl);
+  const title = "⚠️ magento.watch nie odpowiada";
+  const text = "Nie udało się pobrać listy biuletynów mimo ponownych prób.";
+  const next = "Kolejna próba przy następnym uruchomieniu crona.";
+  const links = [{ title: "magento.watch", url: MAGENTO_WATCH_BULLETIN_PAGE }];
+  const payload =
+    channel.type === "google-chat"
+      ? googleChatMessage(title, text, [{ widgets: [subtle(error), subtle(next), linkButtons(links)] }], "magento-watch-alert")
+      : teamsMessage(
+          [
+            {
+              type: "Container",
+              style: "warning",
+              bleed: true,
+              items: [{ type: "TextBlock", text: title, weight: "Bolder", size: "Large", wrap: true }],
+            },
+            { type: "TextBlock", text, wrap: true },
+            { type: "TextBlock", text: error, wrap: true, isSubtle: true, size: "Small" },
+            { type: "TextBlock", text: next, wrap: true, isSubtle: true, size: "Small" },
+          ],
+          links,
+        );
+  await post(channel, resolveSecret(channel.url, env)!, payload, fetchImpl);
 }
 
-async function postTeams(url: string, payload: unknown, fetchImpl: typeof fetch): Promise<void> {
-  const res = await fetchImpl(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+async function post(channel: ChannelConfig, url: string, payload: unknown, fetchImpl: typeof fetch): Promise<void> {
+  const res = await fetchImpl(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=UTF-8" },
+    body: JSON.stringify(payload),
+  });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`teams HTTP ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`${channel.type} HTTP ${res.status}: ${text.slice(0, 200)}`);
   }
   await res.body?.cancel().catch(() => {});
 }

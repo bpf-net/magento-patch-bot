@@ -9,7 +9,7 @@ import { type Product, PRODUCT_LABEL, isValidVersionSpec } from "./versions";
  * z sekretu Workera o tej nazwie (wrangler secret put NAZWA).
  */
 
-export type ChannelType = "teams";
+export type ChannelType = "teams" | "google-chat";
 
 export interface ChannelConfig {
   type: ChannelType;
@@ -30,12 +30,14 @@ export interface BotConfig {
 }
 
 const PRODUCTS = Object.keys(PRODUCT_LABEL) as Product[];
+const CHANNEL_TYPES: ChannelType[] = ["teams", "google-chat"];
 
 /** Wiersz tabeli subscriptions. */
 export interface SubscriptionRow {
   name: string;
   product: string;
   versions: string;
+  channel: string;
   webhook_url: string;
   unsupported_lines: number;
   enabled: number;
@@ -60,9 +62,14 @@ export function parseRows(rows: SubscriptionRow[]): ParseResult {
     if (!versions.length) errors.push(`${label}.versions: niepusta lista po przecinku, np. "2.4.8-p5", "2.4.8-*" lub "*"`);
     for (const v of versions) if (!isValidVersionSpec(v)) errors.push(`${label}.versions: nieznany format "${v}"`);
 
+    const type = (row.channel ?? "teams") as ChannelType;
+    if (!CHANNEL_TYPES.includes(type)) errors.push(`${label}.channel: jedno z ${CHANNEL_TYPES.join(", ")}`);
+
     const url = String(row.webhook_url ?? "").trim();
     if (!(/^https:\/\//.test(url) || /^secret:[A-Z0-9_]+$/i.test(url)))
       errors.push(`${label}.webhook_url: adres https://… albo secret:NAZWA_SEKRETU`);
+    else if (type === "google-chat" && url.startsWith("https://") && !url.startsWith("https://chat.googleapis.com/"))
+      errors.push(`${label}.webhook_url: webhook Google Chat zaczyna się od https://chat.googleapis.com/`);
 
     subscriptions.push({
       name: row.name,
@@ -70,7 +77,7 @@ export function parseRows(rows: SubscriptionRow[]): ParseResult {
       versions,
       unsupportedLines: row.unsupported_lines !== 0,
       enabled: row.enabled !== 0,
-      channel: { type: "teams", url },
+      channel: { type, url },
     });
   }
   return errors.length ? { ok: false, errors } : { ok: true, config: { subscriptions } };

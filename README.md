@@ -1,15 +1,15 @@
 ## Magento patch bot
 
-A Cloudflare Worker that checks [magento.watch](https://magento.watch) for new Adobe Commerce / Magento Open Source security bulletins and posts them to Microsoft Teams. Each subscription gets only the bulletins that affect its Magento versions.
+A Cloudflare Worker that checks [magento.watch](https://magento.watch) for new Adobe Commerce / Magento Open Source security bulletins and posts them to Microsoft Teams or Google Chat. Each subscription gets only the bulletins that affect its Magento versions.
 
 ### How it works
 
 Once a day (06:00 UTC) the cron trigger starts a Cloudflare Workflow. The workflow:
 
 1. Loads the subscriptions from the D1 table `subscriptions`.
-2. Downloads the bulletin list from the magento.watch API. If the request fails, it retries 3 times, every 30 minutes. If all attempts fail, it sends an alert card to every Teams webhook and stops until the next cron run.
+2. Downloads the bulletin list from the magento.watch API. If the request fails, it retries 3 times, every 30 minutes. If all attempts fail, it sends an alert card to every webhook and stops until the next cron run.
 3. Saves new bulletins to KV and adds them to the delivery queue.
-4. Checks each bulletin against each subscription and posts an Adaptive Card to Teams. If a post fails, it retries 3 times, every 15 minutes. If it still fails, the remaining bulletins for that webhook wait for the next cron run. Different webhooks are handled in parallel, bulletins for one webhook are sent in order (oldest first).
+4. Checks each bulletin against each subscription and posts a card to Teams (Adaptive Card) or Google Chat (cardsV2). If a post fails, it retries 3 times, every 15 minutes. If it still fails, the remaining bulletins for that webhook wait for the next cron run. Different webhooks are handled in parallel, bulletins for one webhook are sent in order (oldest first). Google Chat accepts 1 message per second per space, so the bot waits 1 second between Google Chat posts.
 
 A bulletin stays in the queue for up to 7 days. Bulletins older than 120 days are ignored.
 
@@ -40,16 +40,20 @@ npx wrangler d1 migrations apply magento-patch-bot --remote
 
 The first deploy creates the `STATE` KV namespace and the `magento-patch-bot` D1 database and writes their ids into `wrangler.toml`. Commit that change, otherwise the next deploy from a clean checkout creates new, empty ones. Run the migration right after the first deploy, before the first cron run.
 
-To get a Teams webhook URL, add the "Post to a channel when a webhook request is received" workflow to the channel (Teams > channel > Workflows).
+Webhook URLs:
+
+- Teams: add the "Post to a channel when a webhook request is received" workflow to the channel (Teams > channel > Workflows).
+- Google Chat: open the space, then space name > Apps & integrations > Webhooks > Add webhook. The URL starts with `https://chat.googleapis.com/v1/spaces/`. Webhooks are available only in Google Workspace accounts.
 
 ### Configuration
 
-Subscriptions are rows in the D1 table `subscriptions`: what to check (product and versions) and where to send it (Teams webhook). Edit them in the Cloudflare dashboard (Storage & Databases > D1 > `magento-patch-bot` > Console) or with `wrangler d1 execute`. No deploy is needed, the next run uses the new data.
+Subscriptions are rows in the D1 table `subscriptions`: what to check (product and versions) and where to send it (Teams or Google Chat webhook). Edit them in the Cloudflare dashboard (Storage & Databases > D1 > `magento-patch-bot` > Console) or with `wrangler d1 execute`. No deploy is needed, the next run uses the new data.
 
 ```sh
 npx wrangler d1 execute magento-patch-bot --remote --command "
-  INSERT INTO subscriptions (name, product, versions, webhook_url)
-  VALUES ('client-a', 'open-source', '2.4.8-p5, 2.4.7-*', 'secret:CLIENT_A_TEAMS_URL')"
+  INSERT INTO subscriptions (name, product, versions, channel, webhook_url)
+  VALUES ('client-a', 'open-source', '2.4.8-p5, 2.4.7-*', 'teams', 'secret:CLIENT_A_TEAMS_URL'),
+         ('client-b', 'commerce', '2.4.8-*', 'google-chat', 'secret:CLIENT_B_CHAT_URL')"
 ```
 
 | Column | Default | Description |
@@ -57,7 +61,8 @@ npx wrangler d1 execute magento-patch-bot --remote --command "
 | `name` | | Unique name (primary key), used in logs and delivery status. |
 | `product` | `open-source` | `open-source`, `commerce` or `b2b`. |
 | `versions` | | Comma-separated list. Exact version (`2.4.8-p5`), whole line (`2.4.8-*`) or everything (`*`). |
-| `webhook_url` | | Teams webhook URL (`https://...`) or `secret:NAME`. |
+| `channel` | `teams` | `teams` or `google-chat`. |
+| `webhook_url` | | Webhook URL (`https://...`) or `secret:NAME`. |
 | `unsupported_lines` | `1` | `1` also notifies about lines that got no fix. |
 | `enabled` | `1` | `0` turns the subscription off. |
 
