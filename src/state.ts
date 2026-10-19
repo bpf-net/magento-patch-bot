@@ -3,8 +3,9 @@ import type { VersionMatch } from "./versions";
 
 export interface Env {
   STATE: KVNamespace;
+  DB: D1Database; // tabela subscriptions
   CHECK: Workflow;
-  TEAMS_WEBHOOK_URL?: string; // secret — używany tylko, gdy w KV nie ma klucza "config"
+  TEAMS_WEBHOOK_URL?: string; // secret — używany tylko, gdy tabela subscriptions jest pusta
   ADMIN_TOKEN?: string; // secret — chroni endpointy administracyjne
   MAGENTO_WATCH_API?: string;
   [secret: string]: unknown; // sekrety wskazywane w konfiguracji jako "secret:NAZWA"

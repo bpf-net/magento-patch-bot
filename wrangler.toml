@@ -13,6 +13,11 @@ crons = [ "0 6 * * *" ]
 binding = "STATE"
 id = "45e1010cb5df469eb9c717f78c38f9a1"
 
+[[d1_databases]]
+binding = "DB"
+database_name = "magento-patch-bot"
+migrations_dir = "migrations"
+
 [[workflows]]
 name = "magento-patch-bot-check"
 binding = "CHECK"

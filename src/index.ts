@@ -25,7 +25,7 @@ export default {
     if (!authorized(req, env)) return json({ error: "unauthorized" }, 401);
 
     if (path === "/status" && req.method === "GET") {
-      const [state, cfg] = await Promise.all([loadState(env), loadConfig(env.STATE, env.TEAMS_WEBHOOK_URL)]);
+      const [state, cfg] = await Promise.all([loadState(env), loadConfig(env.DB, env.TEAMS_WEBHOOK_URL)]);
       return json({
         state,
         config: cfg.ok ? { source: cfg.source, ...(redactConfig(cfg.config) as object) } : { source: cfg.source, errors: cfg.errors },

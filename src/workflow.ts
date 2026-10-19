@@ -37,7 +37,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export class CheckWorkflow extends WorkflowEntrypoint<Env> {
   async run(event: WorkflowEvent<unknown>, step: WorkflowStep) {
     const env = this.env;
-    const cfg = await step.do("wczytaj konfigurację", () => loadConfig(env.STATE, env.TEAMS_WEBHOOK_URL));
+    const cfg = await step.do("wczytaj konfigurację", () => loadConfig(env.DB, env.TEAMS_WEBHOOK_URL));
     const subs = cfg.ok ? cfg.config.subscriptions : [];
     const errors: string[] = cfg.ok ? [] : cfg.errors.map((e) => `config: ${e}`);
 
